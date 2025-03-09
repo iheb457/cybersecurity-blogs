@@ -1,9 +1,7 @@
-name: Cybersecurity Blog 
+name: Cybersecurity Blog
 
 on:
-  schedule:
-    - cron: "0 8 * * 1"  # every Monday at 8 AM UTC
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   generate-blog:
@@ -11,30 +9,73 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Ensures the latest repo version is used
 
-      - name: Generate Blog Post with Gemini AI
+      - name: Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Generate Blog Content
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Uses the secret for authentication
         run: |
-          echo "Generating AI-powered cybersecurity blog using Gemini API..."
-          RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "contents": [
-                {"parts": [{"text": "You are a cybersecurity expert. Write a detailed 500-word article about the latest cybersecurity trends, best practices, or attack techniques. Make it professional and informative."}]}
-              ]
-            }')
+          python <<EOF
+          import requests
+          import json
+          import os
+          from datetime import datetime
 
-          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > "blogs/$(date +%Y-%m-%d)-cyber-blog.md"
+          # API Key from GitHub Secrets
+          API_KEY = os.getenv("GEMINI_API_KEY")
+          if not API_KEY:
+              raise ValueError("Missing API Key: Make sure GEMINI_API_KEY is set in GitHub Secrets.")
 
-      - name: Update README with Latest Blog
+          # API Endpoint for Google Gemini AI
+          URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + API_KEY
+
+          # Prompt for Cybersecurity Blog
+          prompt = {
+              "contents": [{
+                  "role": "user",
+                  "parts": [{
+                      "text": "Write a detailed cybersecurity blog post about the latest threats in 2024, best security practices, and how companies can protect themselves."
+                  }]
+              }]
+          }
+
+          headers = {"Content-Type": "application/json"}
+          response = requests.post(URL, headers=headers, json=prompt)
+
+          # Handle API response
+          if response.status_code != 200:
+              raise Exception(f"API Error: {response.status_code} - {response.text}")
+
+          result = response.json()
+          blog_content = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "No content generated.")
+
+          # Save to Markdown file
+          blog_filename = f"blogs/blog_{datetime.now().strftime('%Y-%m-%d')}.md"
+          os.makedirs("blogs", exist_ok=True)
+          with open(blog_filename, "w", encoding="utf-8") as file:
+              file.write(f"# Cybersecurity Insights - {datetime.now().strftime('%B %d, %Y')}\n\n")
+              file.write(blog_content)
+
+          print(f"Blog saved: {blog_filename}")
+          EOF
+
+      - name: Commit and Push Blog Post
         run: |
-          echo "## Latest AI-Generated Cybersecurity Blogs" > README.md
-          ls -1 blogs/*.md | sort -r | head -5 | awk '{print "- ["$0"]("$0")"}' >> README.md
-
-      - name: Commit and Push Changes
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add .
-          git commit -m "Automated AI Blog Update - $(date +'%Y-%m-%d')"
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add blogs/
+          git commit -m "📢 New Cybersecurity Blog Post - $(date +'%Y-%m-%d')"
           git push
+        continue-on-error: true  # Prevents workflow failure if there's nothing new to commit
+
+      - name: Debugging Step
+        if: failure()
+        run: cat blogs/*
