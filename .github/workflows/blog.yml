@@ -3,13 +3,15 @@ name: Cybersecurity Blog
 on:
   workflow_dispatch:  # Allows manual triggering
 
+permissions: write-all  # Ensure GitHub Actions has permission to push changes
+
 jobs:
   generate-blog:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4  # Ensures the latest repo version is used
+        uses: actions/checkout@v4
 
       - name: Set Up Python
         uses: actions/setup-python@v4
@@ -19,9 +21,20 @@ jobs:
       - name: Install Dependencies
         run: pip install requests
 
+      - name: Verify API Key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "❌ ERROR: Missing API Key! Make sure GEMINI_API_KEY is set in GitHub Secrets."
+            exit 1
+          else
+            echo "✅ API Key detected. Proceeding..."
+          fi
+
       - name: Generate Blog Content
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Uses the secret for authentication
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python <<EOF
           import requests
@@ -29,15 +42,13 @@ jobs:
           import os
           from datetime import datetime
 
-          # API Key from GitHub Secrets
           API_KEY = os.getenv("GEMINI_API_KEY")
           if not API_KEY:
-              raise ValueError("Missing API Key: Make sure GEMINI_API_KEY is set in GitHub Secrets.")
+              print("❌ ERROR: API Key is missing!")
+              exit(1)
 
-          # API Endpoint for Google Gemini AI
           URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + API_KEY
 
-          # Prompt for Cybersecurity Blog
           prompt = {
               "contents": [{
                   "role": "user",
@@ -50,21 +61,24 @@ jobs:
           headers = {"Content-Type": "application/json"}
           response = requests.post(URL, headers=headers, json=prompt)
 
-          # Handle API response
+          # Print response for debugging
+          print(f"🔍 API Response: {response.status_code} - {response.text}")
+
           if response.status_code != 200:
-              raise Exception(f"API Error: {response.status_code} - {response.text}")
+              print("❌ API Error: ", response.text)
+              exit(1)
 
           result = response.json()
           blog_content = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "No content generated.")
 
-          # Save to Markdown file
+          # Save the blog
           blog_filename = f"blogs/blog_{datetime.now().strftime('%Y-%m-%d')}.md"
           os.makedirs("blogs", exist_ok=True)
           with open(blog_filename, "w", encoding="utf-8") as file:
               file.write(f"# Cybersecurity Insights - {datetime.now().strftime('%B %d, %Y')}\n\n")
               file.write(blog_content)
 
-          print(f"Blog saved: {blog_filename}")
+          print(f"✅ Blog saved: {blog_filename}")
           EOF
 
       - name: Commit and Push Blog Post
@@ -72,10 +86,12 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
           git add blogs/
-          git commit -m "📢 New Cybersecurity Blog Post - $(date +'%Y-%m-%d')"
-          git push
-        continue-on-error: true  # Prevents workflow failure if there's nothing new to commit
+          git commit -m "📢 New Cybersecurity Blog Post - $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push || echo "No changes to push"
+        continue-on-error: true  # Prevents workflow failure if nothing new is committed
 
       - name: Debugging Step
         if: failure()
-        run: cat blogs/*
+        run: |
+          echo "❌ Debugging Info: Listing Files in Directory"
+          ls -R
