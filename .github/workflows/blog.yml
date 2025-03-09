@@ -1,0 +1,40 @@
+name: AI Cybersecurity Blog Generator
+
+on:
+  schedule:
+    - cron: "0 8 * * 1"  # Runs every Monday at 8 AM UTC
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  generate-blog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Generate Blog Post with Gemini AI
+        run: |
+          echo "Generating AI-powered cybersecurity blog using Gemini API..."
+          RESPONSE=$(curl -s -X POST "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{ secrets.GEMINI_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "contents": [
+                {"parts": [{"text": "You are a cybersecurity expert. Write a detailed 500-word article about the latest cybersecurity trends, best practices, or attack techniques. Make it professional and informative."}]}
+              ]
+            }')
+
+          echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text' > "blogs/$(date +%Y-%m-%d)-cyber-blog.md"
+
+      - name: Update README with Latest Blog
+        run: |
+          echo "## Latest AI-Generated Cybersecurity Blogs" > README.md
+          ls -1 blogs/*.md | sort -r | head -5 | awk '{print "- ["$0"]("$0")"}' >> README.md
+
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+          git add .
+          git commit -m "Automated AI Blog Update - $(date +'%Y-%m-%d')"
+          git push
