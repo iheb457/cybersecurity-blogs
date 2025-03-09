@@ -1,8 +1,8 @@
-name: AI Cybersecurity Blog Generator
+name: Cybersecurity Blog 
 
 on:
   schedule:
-    - cron: "0 8 * * 1"  # Runs every Monday at 8 AM UTC
+    - cron: "0 8 * * 1"  # every Monday at 8 AM UTC
   workflow_dispatch:  # Allows manual trigger
 
 jobs:
